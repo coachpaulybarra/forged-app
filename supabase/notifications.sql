@@ -17,25 +17,28 @@ create table if not exists public.notify_state (
 );
 alter table public.notify_state enable row level security;  -- no policies: invisible to the app
 
--- Private settings: the function address and a shared secret
+-- One-time tickets: the database writes a ticket, then pings the function with only its id.
+-- The function reads (and deletes) the ticket using its own built-in key, so no shared secret exists.
 create schema if not exists private;
 revoke all on schema private from public, anon, authenticated;
-create table if not exists private.settings (key text primary key, value text not null);
-insert into private.settings (key, value) values
-  ('notify_url', 'https://qsdssjbpewgmvlrvjpzv.supabase.co/functions/v1/forged-notify'),
-  ('notify_secret', '__NOTIFY_SECRET__')
-on conflict (key) do update set value = excluded.value;
+create table if not exists public.notify_queue (
+  token uuid primary key default gen_random_uuid(),
+  kind text not null,
+  payload jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+alter table public.notify_queue enable row level security;  -- no policies: invisible to the app
 
 create or replace function private.notify(kind text, payload jsonb default '{}'::jsonb)
 returns void language plpgsql security definer set search_path = public, private as $$
-declare u text; s text;
+declare t uuid;
 begin
-  select value into u from private.settings where key = 'notify_url';
-  select value into s from private.settings where key = 'notify_secret';
+  delete from notify_queue where created_at < now() - interval '1 day';
+  insert into notify_queue (kind, payload) values (kind, payload) returning token into t;
   perform net.http_post(
-    url := u,
-    headers := jsonb_build_object('Content-Type', 'application/json', 'x-forged-secret', s),
-    body := payload || jsonb_build_object('type', kind),
+    url := 'https://qsdssjbpewgmvlrvjpzv.supabase.co/functions/v1/forged-notify',
+    headers := jsonb_build_object('Content-Type', 'application/json'),
+    body := jsonb_build_object('ticket', t),
     timeout_milliseconds := 20000
   );
 end $$;

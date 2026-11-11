@@ -1,6 +1,8 @@
 // FORGED notifications: prayer alerts, 6 PM daily digest, welcome / approved / new-request emails.
-// Deployed as the Supabase Edge Function "forged-notify" (JWT verification OFF; it checks its own secret).
-// Secrets: SMTP_USER, SMTP_PASS (Google app password), FROM_NAME, NOTIFY_SECRET. Optional: SMTP_HOST, SMTP_PORT.
+// Deployed as the Supabase Edge Function "forged-notify" (JWT verification OFF).
+// Database triggers leave a one-time ticket in notify_queue and send only its id; this function
+// reads and deletes the ticket with its built-in key, so there is no shared secret to leak.
+// Secret to set: SMTP_PASS (Google app password). Optional: SMTP_USER, FROM_NAME, SMTP_HOST, SMTP_PORT.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import nodemailer from "npm:nodemailer@6.9.16";
 
@@ -9,7 +11,7 @@ const LOGO = `${SITE}/logo-720.png`;
 const NAVY = "#1B2A4A", GOLD = "#C9A44C", INK = "#1B2A4A", MUTED = "#5B6478", PAPER = "#F7F5F0";
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-forged-secret",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const secretKeys = (() => { try { return JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") || "{}"); } catch { return {}; } })();
@@ -51,8 +53,8 @@ const prefsNote = `You get these because email updates are on for your FORGED ac
 // ---------- sending ----------
 async function send(list: { to: string; subject: string; html: string; text: string }[]) {
   if (!list.length) return 0;
-  const user = Deno.env.get("SMTP_USER")!, pass = Deno.env.get("SMTP_PASS")!;
-  if (!user || !pass) throw new Error("Email isn't set up yet: add SMTP_USER and SMTP_PASS in Edge Function secrets.");
+  const user = Deno.env.get("SMTP_USER") || "paul@menofforged.com", pass = (Deno.env.get("SMTP_PASS") || "").replace(/\s+/g, "");
+  if (!pass) throw new Error("Email isn't set up yet: add SMTP_PASS (the Google app password) in Edge Function secrets.");
   const from = `${Deno.env.get("FROM_NAME") || "Coach Paul | FORGED"} <${user}>`;
   const tx = nodemailer.createTransport({
     host: Deno.env.get("SMTP_HOST") || "smtp.gmail.com",
@@ -233,22 +235,27 @@ Deno.serve(async (req) => {
   const reply = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
   try {
     const body = await req.json().catch(() => ({}));
-    const internal = !!Deno.env.get("NOTIFY_SECRET") && req.headers.get("x-forged-secret") === Deno.env.get("NOTIFY_SECRET");
-    if (!internal) {
-      // Only an approved admin, signed in to the app, may trigger a test digest.
+    let job: { kind: string; payload: any } | null = null;
+    if (typeof body.ticket === "string" && /^[0-9a-f-]{36}$/i.test(body.ticket)) {
+      const { data: t } = await db.from("notify_queue").delete().eq("token", body.ticket).select("kind,payload").maybeSingle();
+      if (t) job = { kind: t.kind, payload: t.payload || {} };
+    }
+    if (!job) {
+      // Otherwise only an approved admin, signed in to the app, may trigger a test digest.
       const jwt = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-      const { data: u } = await db.auth.getUser(jwt);
+      const { data: u } = jwt ? await db.auth.getUser(jwt) : { data: null };
       const { data: me } = u?.user ? await db.from("members").select("email,role,status").eq("user_id", u.user.id).maybeSingle() : { data: null };
       if (!me || me.role !== "admin" || me.status !== "approved" || body.type !== "digest_test") return reply({ error: "Not allowed" }, 403);
       return reply(await digestTest(me.email));
     }
-    switch (body.type) {
-      case "prayer": return reply(await prayer(body.message_id));
+    const pl = job.payload;
+    switch (job.kind) {
+      case "prayer": return reply(await prayer(pl.message_id));
       case "digest_tick": return reply(await digestTick(false));
       case "digest_force": return reply(await digestTick(true));
       case "member_added":
       case "approved":
-      case "new_request": return reply(await memberEvent(body.type, body.member_id));
+      case "new_request": return reply(await memberEvent(job.kind, pl.member_id));
       default: return reply({ error: "unknown type" }, 400);
     }
   } catch (e) {
