@@ -12,12 +12,20 @@ self.addEventListener("push", (e) => {
     data: { url: d.url || "/" },
   }));
 });
+// Tapping an alert opens the app on the right tab (and the right chat).
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   const url = new URL((e.notification.data && e.notification.data.url) || "/", self.location.origin).href;
   e.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    for (const c of all) { if (c.url.startsWith(self.location.origin)) { await c.focus(); return; } }
+    const c = all.find((w) => w.url.startsWith(self.location.origin));
+    if (c) {
+      try {
+        c.postMessage({ fgOpen: new URL(url).hash || "#home" });
+        await c.focus();
+        return;
+      } catch (_) { /* fall through and open fresh */ }
+    }
     await self.clients.openWindow(url);
   })());
 });

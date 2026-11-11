@@ -105,7 +105,7 @@ async function prayer(messageId: number) {
     footnote: prefsNote,
   });
   const text = `${who} asked the brothers to pray:\n\n"${msg.body}"\n\nStop and pray right now, then tell him you did: ${SITE}`;
-  const pushed = await pushSafe(await approvedIds(msg.member_id), { title: `🙏 ${first(who)} needs prayer`, body: msg.body || "Shared a photo", url: "/", tag: `prayer-${msg.id}` });
+  const pushed = await pushSafe(await approvedIds(msg.member_id), { title: `🙏 ${first(who)} needs prayer`, body: msg.body || "Shared a photo", url: `/#community-${msg.channel_id}`, tag: `prayer-${msg.id}` });
   const list = (await recipients(msg.member_id)).map((r) => ({ to: r.email, subject: `Prayer request from ${who}`, html, text }));
   return { sent: await send(list), pushed };
 }
@@ -242,7 +242,7 @@ async function mention(messageId: number) {
   if (msg.released === false) return { sent: 0, reason: "scheduled, not live yet" };
   if (!msg.parent_id && msg.channels?.instant) return { sent: 0, reason: "covered by the prayer alert" };
   const tagger = msg.member_name || "A brother";
-  const pushed = await pushSafe((msg.mentions as number[]).filter((id) => id !== msg.member_id), { title: `${first(tagger)} tagged you`, body: msg.body || "Shared a photo", url: "/", tag: `mention-${msg.id}` });
+  const pushed = await pushSafe((msg.mentions as number[]).filter((id) => id !== msg.member_id), { title: `${first(tagger)} tagged you`, body: msg.body || "Shared a photo", url: msg.channel_id ? `/#community-${msg.channel_id}` : "/#teachings", tag: `mention-${msg.id}` });
   const { data: ms, error } = await db.from("members").select("id,name,email").in("id", msg.mentions)
     .eq("status", "approved").eq("digest_opt_out", false).not("user_id", "is", null).not("email", "is", null);
   if (error) throw error;
@@ -297,7 +297,7 @@ async function memberEvent(kind: string, memberId: number) {
   }
   if (kind === "new_request") {
     const { data: admins } = await db.from("members").select("id,email").eq("role", "admin").eq("status", "approved").not("email", "is", null);
-    await pushSafe((admins || []).map((a) => a.id), { title: "New FORGED request", body: `${m.name} asked to join.`, url: "/", tag: `req-${m.id}` });
+    await pushSafe((admins || []).map((a) => a.id), { title: "New FORGED request", body: `${m.name} asked to join.`, url: "/#members", tag: `req-${m.id}` });
     const html = layout({
       preheader: `${m.name} asked to join FORGED.`,
       heading: `New request: ${m.name}`,
