@@ -90,6 +90,7 @@ async function recipients(excludeMemberId?: number) {
 async function prayer(messageId: number) {
   const { data: msg } = await db.from("messages").select("*, channels(name,instant)").eq("id", messageId).maybeSingle();
   if (!msg || !msg.channels?.instant) return { sent: 0, reason: "not an instant channel" };
+  if (msg.released === false) return { sent: 0, reason: "scheduled, not live yet" };
   const who = msg.member_name || "A brother";
   const quote = esc(msg.body || "(shared a photo)").replace(/\n/g, "<br>");
   const html = layout({
@@ -110,7 +111,7 @@ async function prayer(messageId: number) {
 // ---------- daily digest ----------
 async function buildDigest(since: string) {
   const [{ data: msgs }, { data: teach }, { data: evNew }, { data: upcoming }] = await Promise.all([
-    db.from("messages").select("member_name,body,created_at,channel_id,teaching_id,channels(name,instant),teachings(title)").gt("created_at", since).order("created_at"),
+    db.from("messages").select("member_name,body,created_at,channel_id,teaching_id,channels(name,instant),teachings(title)").gt("created_at", since).eq("released", true).order("created_at"),
     db.from("teachings").select("title,description,kind").gt("created_at", since).order("created_at"),
     db.from("events").select("title,event_date,start_time,location").gt("created_at", since).order("event_date"),
     db.from("events").select("title,event_date,start_time,location")
@@ -192,6 +193,7 @@ async function digestTest(adminEmail: string) {
 async function mention(messageId: number) {
   const { data: msg } = await db.from("messages").select("*, channels(name,instant), teachings(title)").eq("id", messageId).maybeSingle();
   if (!msg || !(msg.mentions || []).length) return { sent: 0 };
+  if (msg.released === false) return { sent: 0, reason: "scheduled, not live yet" };
   if (!msg.parent_id && msg.channels?.instant) return { sent: 0, reason: "covered by the prayer alert" };
   const { data: ms, error } = await db.from("members").select("id,name,email").in("id", msg.mentions)
     .eq("status", "approved").eq("digest_opt_out", false).not("user_id", "is", null).not("email", "is", null);
