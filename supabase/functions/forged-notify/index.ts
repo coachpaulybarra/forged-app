@@ -5,6 +5,7 @@
 // Secret to set: SMTP_PASS (Google app password). Optional: SMTP_USER, FROM_NAME, SMTP_HOST, SMTP_PORT.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import nodemailer from "npm:nodemailer@6.9.16";
+import webpush from "npm:web-push@3.6.7";
 
 const SITE = "https://menofforged.com";
 const LOGO = `${SITE}/logo-720.png`;
@@ -104,8 +105,53 @@ async function prayer(messageId: number) {
     footnote: prefsNote,
   });
   const text = `${who} asked the brothers to pray:\n\n"${msg.body}"\n\nStop and pray right now, then tell him you did: ${SITE}`;
+  const pushed = await pushSafe(await approvedIds(msg.member_id), { title: `🙏 ${first(who)} needs prayer`, body: msg.body || "Shared a photo", url: "/", tag: `prayer-${msg.id}` });
   const list = (await recipients(msg.member_id)).map((r) => ({ to: r.email, subject: `Prayer request from ${who}`, html, text }));
-  return { sent: await send(list) };
+  return { sent: await send(list), pushed };
+}
+
+
+// ---------- phone alerts (web push) ----------
+// Signing keys are created here on first use and kept in push_config (server-only table).
+let vapidCache: { pub: string; priv: string } | null = null;
+async function vapid() {
+  if (vapidCache) return vapidCache;
+  let { data: c } = await db.from("push_config").select("vapid_public,vapid_private").eq("id", 1).maybeSingle();
+  if (!c) {
+    const k = webpush.generateVAPIDKeys();
+    await db.from("push_config").upsert({ id: 1, vapid_public: k.publicKey, vapid_private: k.privateKey }, { onConflict: "id", ignoreDuplicates: true });
+    ({ data: c } = await db.from("push_config").select("vapid_public,vapid_private").eq("id", 1).maybeSingle());
+  }
+  if (!c) throw new Error("Could not set up push keys");
+  vapidCache = { pub: c.vapid_public, priv: c.vapid_private };
+  return vapidCache;
+}
+async function pushTo(memberIds: number[], note: { title: string; body: string; url?: string; tag?: string }) {
+  const ids = [...new Set(memberIds)].filter(Number.isInteger);
+  if (!ids.length) return 0;
+  const { data: subs, error } = await db.from("push_subscriptions").select("id,endpoint,p256dh,auth,member_id").in("member_id", ids);
+  if (error) throw error;
+  if (!subs?.length) return 0;
+  const k = await vapid();
+  const payload = JSON.stringify({ title: note.title, body: clip(note.body, 160), url: note.url || "/", tag: note.tag || "forged" });
+  let ok = 0; const dead: number[] = [];
+  await Promise.all(subs.map(async (s) => {
+    try {
+      const d = webpush.generateRequestDetails({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload,
+        { TTL: 60 * 60 * 24, urgency: "high", vapidDetails: { subject: "mailto:paul@menofforged.com", publicKey: k.pub, privateKey: k.priv } });
+      const r = await fetch(d.endpoint, { method: d.method, headers: d.headers as Record<string, string>, body: d.body });
+      if (r.status === 404 || r.status === 410) dead.push(s.id); else if (r.ok) ok++; else console.error("push", r.status, await r.text());
+    } catch (e) { console.error("push error", e); }
+  }));
+  if (dead.length) await db.from("push_subscriptions").delete().in("id", dead);
+  return ok;
+}
+async function pushSafe(memberIds: number[], note: { title: string; body: string; url?: string; tag?: string }) {
+  try { return await pushTo(memberIds, note); } catch (e) { console.error("push failed", e); return 0; }
+}
+async function approvedIds(exclude?: number) {
+  const { data } = await db.from("members").select("id").eq("status", "approved").not("user_id", "is", null);
+  return (data || []).map((m) => m.id).filter((id) => id !== exclude);
 }
 
 // ---------- daily digest ----------
@@ -195,6 +241,8 @@ async function mention(messageId: number) {
   if (!msg || !(msg.mentions || []).length) return { sent: 0 };
   if (msg.released === false) return { sent: 0, reason: "scheduled, not live yet" };
   if (!msg.parent_id && msg.channels?.instant) return { sent: 0, reason: "covered by the prayer alert" };
+  const tagger = msg.member_name || "A brother";
+  const pushed = await pushSafe((msg.mentions as number[]).filter((id) => id !== msg.member_id), { title: `${first(tagger)} tagged you`, body: msg.body || "Shared a photo", url: "/", tag: `mention-${msg.id}` });
   const { data: ms, error } = await db.from("members").select("id,name,email").in("id", msg.mentions)
     .eq("status", "approved").eq("digest_opt_out", false).not("user_id", "is", null).not("email", "is", null);
   if (error) throw error;
@@ -216,7 +264,7 @@ async function mention(messageId: number) {
     }),
     text: `${who} mentioned you in ${where}:\n\n"${msg.body || ""}"\n\nSee the post: ${SITE}`,
   }));
-  return { sent: await send(list) };
+  return { sent: await send(list), pushed };
 }
 
 // ---------- member emails ----------
@@ -248,7 +296,8 @@ async function memberEvent(kind: string, memberId: number) {
     return { sent: await send([{ to: m.email, subject: "You're in. Welcome to FORGED.", html, text: `Coach Paul approved your request. Sign in at ${SITE}.` }]) };
   }
   if (kind === "new_request") {
-    const { data: admins } = await db.from("members").select("email").eq("role", "admin").eq("status", "approved").not("email", "is", null);
+    const { data: admins } = await db.from("members").select("id,email").eq("role", "admin").eq("status", "approved").not("email", "is", null);
+    await pushSafe((admins || []).map((a) => a.id), { title: "New FORGED request", body: `${m.name} asked to join.`, url: "/", tag: `req-${m.id}` });
     const html = layout({
       preheader: `${m.name} asked to join FORGED.`,
       heading: `New request: ${m.name}`,
@@ -270,6 +319,14 @@ Deno.serve(async (req) => {
     if (typeof body.ticket === "string" && /^[0-9a-f-]{36}$/i.test(body.ticket)) {
       const { data: t } = await db.from("notify_queue").delete().eq("token", body.ticket).select("kind,payload").maybeSingle();
       if (t) job = { kind: t.kind, payload: t.payload || {} };
+    }
+    if (!job && body.type === "vapid_public") return reply({ key: (await vapid()).pub });
+    if (!job && body.type === "push_test") {
+      const jwt = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+      const { data: u } = jwt ? await db.auth.getUser(jwt) : { data: null };
+      const { data: me } = u?.user ? await db.from("members").select("id,name,status").eq("user_id", u.user.id).maybeSingle() : { data: null };
+      if (!me || me.status !== "approved") return reply({ error: "Not allowed" }, 403);
+      return reply({ pushed: await pushTo([me.id], { title: "FORGED alerts are on 🔥", body: `You're set, ${first(me.name)}. Prayer requests and @tags will show up right here.`, url: "/", tag: "test" }) });
     }
     if (!job) {
       // Otherwise only an approved admin, signed in to the app, may trigger a test digest.
