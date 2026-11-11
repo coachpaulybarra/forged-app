@@ -7,7 +7,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import nodemailer from "npm:nodemailer@6.9.16";
 import webpush from "npm:web-push@3.6.7";
 
-const SITE = "https://menofforged.com";
+const SITE = "https://app.menofforged.com";
 const LOGO = `${SITE}/logo-720.png`;
 const NAVY = "#1B2A4A", GOLD = "#C9A44C", INK = "#1B2A4A", MUTED = "#5B6478", PAPER = "#F7F5F0";
 const cors = {
@@ -278,7 +278,7 @@ async function memberEvent(kind: string, memberId: number) {
       body:
         p(`Coach Paul added you to the FORGED app. It's where we stay in the Word, show up on Tuesdays, and keep each other honest between meetings.`) +
         p(`<strong>Getting in takes one minute:</strong>`) +
-        `<ol style="margin:0 0 14px;padding-left:20px"><li>Go to <a href="${SITE}" style="color:#8A6A1F">menofforged.com</a></li><li>Tap <strong>Request access</strong></li><li>Use this email (${esc(m.email)}) and create a password</li></ol>` +
+        `<ol style="margin:0 0 14px;padding-left:20px"><li>Go to <a href="${SITE}" style="color:#8A6A1F">app.menofforged.com</a></li><li>Tap <strong>Request access</strong></li><li>Use this email (${esc(m.email)}) and create a password</li></ol>` +
         p(`You'll go straight in. No waiting.`) + signoff,
       button: { label: "Set up my account", url: SITE },
     });
