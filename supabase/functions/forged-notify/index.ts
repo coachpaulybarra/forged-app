@@ -188,6 +188,35 @@ async function digestTest(adminEmail: string) {
   return { sent: await send([{ to: adminEmail, ...d, subject: `[Test] ${d.subject}` }]) };
 }
 
+// ---------- @mentions ----------
+async function mention(messageId: number) {
+  const { data: msg } = await db.from("messages").select("*, channels(name,instant), teachings(title)").eq("id", messageId).maybeSingle();
+  if (!msg || !(msg.mentions || []).length) return { sent: 0 };
+  if (!msg.parent_id && msg.channels?.instant) return { sent: 0, reason: "covered by the prayer alert" };
+  const { data: ms, error } = await db.from("members").select("id,name,email").in("id", msg.mentions)
+    .eq("status", "approved").eq("digest_opt_out", false).not("user_id", "is", null).not("email", "is", null);
+  if (error) throw error;
+  const who = msg.member_name || "A brother";
+  const where = msg.channels?.name || msg.teachings?.title || "FORGED";
+  const quote = esc(clip(msg.body || "(shared a photo)", 600)).replace(/\n/g, "<br>");
+  const list = (ms || []).filter((m) => m.id !== msg.member_id).map((m) => ({
+    to: m.email,
+    subject: `${who} tagged you in ${where}`,
+    html: layout({
+      preheader: `${who} mentioned you in FORGED.`,
+      heading: `${first(who)} tagged you, ${first(m.name)}`,
+      body:
+        p(`${esc(who)} mentioned you ${msg.parent_id ? "in a reply " : ""}in <strong>${esc(where)}</strong>:`) +
+        `<div style="margin:0 0 16px;padding:14px 16px;border-left:4px solid ${GOLD};background:${PAPER};border-radius:6px">${quote}</div>` +
+        p(`Go see what he said, and answer him. That's how iron sharpens iron.`),
+      button: { label: "See the post", url: SITE },
+      footnote: prefsNote,
+    }),
+    text: `${who} mentioned you in ${where}:\n\n"${msg.body || ""}"\n\nSee the post: ${SITE}`,
+  }));
+  return { sent: await send(list) };
+}
+
 // ---------- member emails ----------
 async function memberEvent(kind: string, memberId: number) {
   const { data: m } = await db.from("members").select("*").eq("id", memberId).maybeSingle();
@@ -251,6 +280,7 @@ Deno.serve(async (req) => {
     const pl = job.payload;
     switch (job.kind) {
       case "prayer": return reply(await prayer(pl.message_id));
+      case "mention": return reply(await mention(pl.message_id));
       case "digest_tick": return reply(await digestTick(false));
       case "digest_force": return reply(await digestTick(true));
       case "member_added":
