@@ -154,6 +154,30 @@ async function approvedIds(exclude?: number) {
   return (data || []).map((m) => m.id).filter((id) => id !== exclude);
 }
 
+
+// ---------- Brotherhood alerts (phone only) ----------
+// A member's new post in a non-prayer chat buzzes the admins (Coach Paul).
+async function postAlert(messageId: number) {
+  const { data: msg } = await db.from("messages").select("*, channels(name,instant)").eq("id", messageId).maybeSingle();
+  if (!msg || msg.parent_id || !msg.channel_id || msg.channels?.instant) return { pushed: 0, reason: "not a new chat post" };
+  if (msg.released === false) return { pushed: 0, reason: "scheduled, not live yet" };
+  const { data: admins } = await db.from("members").select("id").eq("role", "admin").eq("status", "approved");
+  const tagged = new Set((msg.mentions || []) as number[]);
+  const ids = (admins || []).map((a) => a.id).filter((id) => id !== msg.member_id && !tagged.has(id));
+  const who = msg.member_name || "A brother";
+  return { pushed: await pushSafe(ids, { title: `💬 ${first(who)} posted in ${msg.channels?.name || "the Brotherhood"}`, body: msg.body || "Shared a photo", url: `/#community-${msg.channel_id}`, tag: `post-${msg.id}` }) };
+}
+// A reply buzzes the man who wrote the original post.
+async function replyAlert(messageId: number) {
+  const { data: msg } = await db.from("messages").select("*").eq("id", messageId).maybeSingle();
+  if (!msg || !msg.parent_id) return { pushed: 0, reason: "not a reply" };
+  const { data: parent } = await db.from("messages").select("id,member_id").eq("id", msg.parent_id).maybeSingle();
+  if (!parent || !parent.member_id || parent.member_id === msg.member_id) return { pushed: 0, reason: "own post or gone" };
+  if (((msg.mentions || []) as number[]).includes(parent.member_id)) return { pushed: 0, reason: "covered by the tag alert" };
+  const who = msg.member_name || "A brother";
+  return { pushed: await pushSafe([parent.member_id], { title: `↩️ ${first(who)} replied to your post`, body: msg.body || "Shared a photo", url: msg.channel_id ? `/#community-${msg.channel_id}` : "/#community", tag: `reply-${msg.id}` }) };
+}
+
 // ---------- daily digest ----------
 async function buildDigest(since: string) {
   const [{ data: msgs }, { data: teach }, { data: evNew }, { data: upcoming }] = await Promise.all([
@@ -340,6 +364,8 @@ Deno.serve(async (req) => {
     switch (job.kind) {
       case "prayer": return reply(await prayer(pl.message_id));
       case "mention": return reply(await mention(pl.message_id));
+      case "post": return reply(await postAlert(pl.message_id));
+      case "reply": return reply(await replyAlert(pl.message_id));
       case "digest_tick": return reply(await digestTick(false));
       case "digest_force": return reply(await digestTick(true));
       case "member_added":
