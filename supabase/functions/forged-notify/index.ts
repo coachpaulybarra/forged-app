@@ -319,6 +319,11 @@ async function memberEvent(kind: string, memberId: number) {
     });
     return { sent: await send([{ to: m.email, subject: "You're in. Welcome to FORGED.", html, text: `Coach Paul approved your request. Sign in at ${SITE}.` }]) };
   }
+  if (kind === "invite_joined") {
+    const { data: admins } = await db.from("members").select("id").eq("role", "admin").eq("status", "approved");
+    const pushed = await pushSafe((admins || []).map((x) => x.id).filter((id) => id !== m.id), { title: `🔥 ${first(m.name)} joined FORGED`, body: `${m.name} signed up through your invite link.`, url: "/#members", tag: `join-${m.id}` });
+    return { sent: 0, pushed };
+  }
   if (kind === "new_request") {
     const { data: admins } = await db.from("members").select("id,email").eq("role", "admin").eq("status", "approved").not("email", "is", null);
     await pushSafe((admins || []).map((a) => a.id), { title: "New FORGED request", body: `${m.name} asked to join.`, url: "/#members", tag: `req-${m.id}` });
@@ -370,6 +375,7 @@ Deno.serve(async (req) => {
       case "digest_force": return reply(await digestTick(true));
       case "member_added":
       case "approved":
+      case "invite_joined":
       case "new_request": return reply(await memberEvent(job.kind, pl.member_id));
       default: return reply({ error: "unknown type" }, 400);
     }
