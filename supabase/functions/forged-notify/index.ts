@@ -292,9 +292,32 @@ async function mention(messageId: number) {
 }
 
 // ---------- member emails ----------
+
+// ---------- growth hub (GoHighLevel) ----------
+// Sends a new member to Coach Paul's GoHighLevel inbound webhook. The link lives in integration_config (server-only).
+async function toGrowthHub(m: { name?: string; email?: string; note?: string; created_at?: string }, how: string, test = false) {
+  try {
+    const { data: c } = await db.from("integration_config").select("ghl_webhook").eq("id", 1).maybeSingle();
+    const url = c?.ghl_webhook;
+    if (!url || !m.email) return { ghl: "skipped" };
+    const parts = (m.name || "").trim().split(/\s+/);
+    const body = {
+      first_name: parts[0] || "", last_name: parts.slice(1).join(" "), full_name: (m.name || "").trim(),
+      email: m.email, source: "FORGED app", how_joined: how, invited_by_or_note: (m.note || "").trim(),
+      joined_at: m.created_at || new Date().toISOString(), test,
+    };
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) console.error("growth hub", r.status, await r.text());
+    return { ghl: r.ok ? "sent" : `error ${r.status}` };
+  } catch (e) { console.error("growth hub error", e); return { ghl: "error" }; }
+}
+
 async function memberEvent(kind: string, memberId: number) {
   const { data: m } = await db.from("members").select("*").eq("id", memberId).maybeSingle();
   if (!m) return { sent: 0 };
+  if (kind === "member_added" || kind === "approved" || kind === "invite_joined") {
+    await toGrowthHub(m, kind === "member_added" ? "added by Coach Paul" : kind === "approved" ? "approved request" : "invite link");
+  }
   if (kind === "member_added" && m.email) {
     const html = layout({
       preheader: "Coach Paul added you to the FORGED app.",
@@ -350,6 +373,13 @@ Deno.serve(async (req) => {
       if (t) job = { kind: t.kind, payload: t.payload || {} };
     }
     if (!job && body.type === "vapid_public") return reply({ key: (await vapid()).pub });
+    if (!job && body.type === "ghl_test") {
+      const jwt = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+      const { data: u } = jwt ? await db.auth.getUser(jwt) : { data: null };
+      const { data: me } = u?.user ? await db.from("members").select("*").eq("user_id", u.user.id).maybeSingle() : { data: null };
+      if (!me || me.role !== "admin") return reply({ error: "Not allowed" }, 403);
+      return reply(await toGrowthHub(me, "test from FORGED", true));
+    }
     if (!job && body.type === "push_test") {
       const jwt = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
       const { data: u } = jwt ? await db.auth.getUser(jwt) : { data: null };
