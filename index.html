@@ -10,8 +10,8 @@
 <meta name="apple-mobile-web-app-title" content="FORGED">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#1B2A4A">
-<script>window.FG_BUILD="20261116102052";(function(){var cur=window.FG_BUILD;function chk(){var hs=location.hash||"";if(/access_token|error_description|type=recovery/.test(hs))return;fetch("/version.json?nc="+Date.now(),{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){if(j&&j.build&&j.build!==cur){var k="fg-upd-"+j.build;try{if(sessionStorage.getItem(k))return;sessionStorage.setItem(k,"1")}catch(e){}location.replace("/?v="+j.build+hs)}}).catch(function(){})}chk();document.addEventListener("visibilitychange",function(){document.visibilityState==="visible"&&chk()})})();</script>
-<script src="config.js?v=20261116102052"></script>
+<script>window.FG_BUILD="20261116114511";(function(){var cur=window.FG_BUILD;function chk(){var hs=location.hash||"";if(/access_token|error_description|type=recovery/.test(hs))return;fetch("/version.json?nc="+Date.now(),{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){if(j&&j.build&&j.build!==cur){var k="fg-upd-"+j.build;try{if(sessionStorage.getItem(k))return;sessionStorage.setItem(k,"1")}catch(e){}location.replace("/?v="+j.build+hs)}}).catch(function(){})}chk();document.addEventListener("visibilitychange",function(){document.visibilityState==="visible"&&chk()})})();</script>
+<script src="config.js?v=20261116114511"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap">
@@ -30,7 +30,7 @@ var FG_CFG=window.FORGED_CONFIG||{},FG_SB=null;
 function fgSb(){if(FG_SB)return FG_SB;if(!FG_CFG.supabaseUrl||!FG_CFG.supabaseAnonKey||/PASTE-/.test(FG_CFG.supabaseUrl+FG_CFG.supabaseAnonKey)||!window.supabase)throw new Uf(500,"Forged isn't connected yet. Add your Supabase URL and key to config.js.");FG_SB=window.supabase.createClient(FG_CFG.supabaseUrl,FG_CFG.supabaseAnonKey,{auth:{persistSession:!0,autoRefreshToken:!0,detectSessionInUrl:!0}});FG_SB.auth.onAuthStateChange(ev=>{if(ev==="PASSWORD_RECOVERY"){window.__fgRecovery=!0;window.dispatchEvent(new Event("fg-recovery"))}});return FG_SB}
 try{fgSb()}catch(e){}
 function fgErr(e){if(!e)return;let m=e.message||String(e);if(/row-level security|permission denied/i.test(m))throw new Uf(403,"You don't have permission to do that.");throw new Uf(400,m)}
-async function fgMe(){let s=fgSb(),{data:{session:ss}}=await s.auth.getSession();if(!ss)return null;let{data:r,error:e}=await s.from("members").select("*").eq("user_id",ss.user.id).maybeSingle();fgErr(e);return{session:ss,row:r}}
+async function fgMe(){let s=fgSb(),{data:{session:ss}}=await s.auth.getSession();if(!ss)return null;let{data:r,error:e}=await s.from("members").select("*").eq("user_id",ss.user.id).maybeSingle();fgErr(e);if(!r){await s.rpc("ensure_my_card");({data:r}=await s.from("members").select("*").eq("user_id",ss.user.id).maybeSingle())}return{session:ss,row:r}}
 function fgSafe(n){return(n||"file").replace(/[^A-Za-z0-9._-]+/g,"-").slice(-120)}
 async function fgSign(bucket,keys){keys=keys.filter(Boolean);if(!keys.length)return{};let{data:d,error:e}=await fgSb().storage.from(bucket).createSignedUrls(keys,3600);fgErr(e);let o={};for(let x of d||[])x.signedUrl&&(o[x.path]=x.signedUrl);return o}
 async function Q(t,e){let s=fgSb(),meth=e?.method??"GET",i=e?.body??{},l=new URL(t,"http://x"),n=l.pathname,m;

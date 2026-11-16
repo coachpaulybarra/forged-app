@@ -318,6 +318,18 @@ async function memberEvent(kind: string, memberId: number) {
   if (kind === "member_added" || kind === "approved" || kind === "invite_joined") {
     await toGrowthHub(m, kind === "member_added" ? "added by Coach Paul" : kind === "approved" ? "approved request" : "invite link");
   }
+  if (kind === "member_added" && m.email && m.user_id) {
+    const html = layout({
+      preheader: "Coach Paul reconnected your FORGED account.",
+      heading: `You're back in, ${first(m.name)}.`,
+      body:
+        p(`Coach Paul reconnected your FORGED account. Your login is already set up, so there's nothing new to create.`) +
+        `<ol style="margin:0 0 14px;padding-left:20px"><li>Go to <a href="${SITE}" style="color:#8A6A1F">app.menofforged.com</a></li><li>Tap <strong>Sign in</strong> and use this email (${esc(m.email)}) with your password</li><li>Forgot it? Tap <strong>Forgot password</strong> and set a new one</li></ol>` +
+        p(`The men are in there. Jump back in.`) + signoff,
+      button: { label: "Sign in to FORGED", url: SITE },
+    });
+    return { sent: await send([{ to: m.email, subject: `You're back in, ${first(m.name)}.`, html, text: `Coach Paul reconnected your FORGED account. Go to ${SITE}, tap Sign in, and use ${m.email} with your password. Forgot it? Tap Forgot password.` }]) };
+  }
   if (kind === "member_added" && m.email) {
     const html = layout({
       preheader: "Coach Paul added you to the FORGED app.",
