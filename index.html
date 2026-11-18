@@ -10,8 +10,8 @@
 <meta name="apple-mobile-web-app-title" content="FORGED">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#1B2A4A">
-<script>window.FG_BUILD="20261118075253";(function(){var cur=window.FG_BUILD;function chk(){var hs=location.hash||"";if(/access_token|error_description|type=recovery/.test(hs))return;fetch("/version.json?nc="+Date.now(),{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){if(j&&j.build&&j.build!==cur){var k="fg-upd-"+j.build;try{if(sessionStorage.getItem(k))return;sessionStorage.setItem(k,"1")}catch(e){}location.replace("/?v="+j.build+hs)}}).catch(function(){})}chk();document.addEventListener("visibilitychange",function(){document.visibilityState==="visible"&&chk()})})();</script>
-<script src="config.js?v=20261118075253"></script>
+<script>window.FG_BUILD="20261118081316";(function(){var cur=window.FG_BUILD;function chk(){var hs=location.hash||"";if(/access_token|error_description|type=recovery/.test(hs))return;fetch("/version.json?nc="+Date.now(),{cache:"no-store"}).then(function(r){return r.json()}).then(function(j){if(j&&j.build&&j.build!==cur){var k="fg-upd-"+j.build;try{if(sessionStorage.getItem(k))return;sessionStorage.setItem(k,"1")}catch(e){}location.replace("/?v="+j.build+hs)}}).catch(function(){})}chk();document.addEventListener("visibilitychange",function(){document.visibilityState==="visible"&&chk()})})();</script>
+<script src="config.js?v=20261118081316"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap">
@@ -170,7 +170,7 @@ let paint=async(keep)=>{let t=await rpc("dm_thread",{p_other:oid});T=t;if(view!=
 let near=bd.scrollHeight-bd.scrollTop-bd.clientHeight<80;
 bd.innerHTML=`<div class="wrap" style="display:flex;flex-direction:column">${t.messages.length?"":`<div style="text-align:center;padding:30px 10px" class="muted"><p style="margin:0 0 4px;font-weight:700;color:${N}">Start the conversation with ${esc(first(o.name))}</p><p style="margin:0;font-size:14px">Only the two of you can read this.</p>${o.has_login===false?`<p style="margin:10px 0 0;font-size:14px">${esc(first(o.name))} hasn't set up his login yet. He'll see this when he does.</p>`:""}</div>`}
 ${t.messages.map((x,i)=>{let pv=t.messages[i-1],gap=!pv||new Date(x.created_at)-new Date(pv.created_at)>36e5;return(gap?`<p class="muted" style="text-align:center;font-size:12px;margin:12px 0 6px">${when(x.created_at)}</p>`:"")+`<div class="bub ${x.mine?"me":"them"}">${esc(x.body)}</div>`}).join("")}
-${(()=>{let lm=t.messages[t.messages.length-1];return lm&&lm.mine&&lm.seen?`<p class="muted" style="align-self:flex-end;font-size:12px;margin:2px 4px">Seen</p>`:""})()}
+${(()=>{let lm=t.messages[t.messages.length-1];return lm&&lm.mine?(lm.seen?`<p style="align-self:flex-end;font-size:12px;font-weight:700;letter-spacing:.04em;color:#8A6A1F;margin:3px 4px">Read</p>`:`<p class="muted" style="align-self:flex-end;font-size:12px;margin:3px 4px">Delivered</p>`):""})()}
 ${t.blocked?`<p class="muted" style="text-align:center;font-size:14px;margin:14px 0">You blocked ${esc(first(o.name))}. He can't message you.</p>`:""}</div>`;
 ft.style.display=t.blocked?"none":"";if(keep===!0||near)bd.scrollTop=bd.scrollHeight;refresh()};
 let send=async()=>{let b=ta.value.trim();if(!b)return;sendB.disabled=!0;er.style.display="none";try{await rpc("dm_send",{p_to:oid,p_body:b});ta.value="";grow();await paint(!0)}catch(e){er.textContent=e.message;er.style.display="block"}sendB.disabled=!1;ta.focus()};
