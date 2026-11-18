@@ -178,6 +178,20 @@ async function replyAlert(messageId: number) {
   return { pushed: await pushSafe([parent.member_id], { title: `↩️ ${first(who)} replied to your post`, body: msg.body || "Shared a photo", url: msg.channel_id ? `/#community-${msg.channel_id}` : "/#community", tag: `reply-${msg.id}` }) };
 }
 
+// ---------- direct messages (phone only, no preview: it's private) ----------
+async function dmAlert(messageId: number) {
+  const { data: d } = await db.from("direct_messages").select("id,sender_id,recipient_id").eq("id", messageId).maybeSingle();
+  if (!d) return { pushed: 0, reason: "gone" };
+  const { data: s } = await db.from("members").select("name").eq("id", d.sender_id).maybeSingle();
+  return { pushed: await pushSafe([d.recipient_id], { title: `💬 ${first(s?.name || "A brother")} sent you a message`, body: "Tap to read it.", url: `/#dm-${d.sender_id}`, tag: `dm-${d.sender_id}` }) };
+}
+async function dmReportAlert(reportId: number) {
+  const { data: r } = await db.from("dm_reports").select("id,reporter_name").eq("id", reportId).maybeSingle();
+  if (!r) return { pushed: 0, reason: "gone" };
+  const { data: admins } = await db.from("members").select("id").eq("role", "admin").eq("status", "approved");
+  return { pushed: await pushSafe((admins || []).map((a) => a.id), { title: "🚩 A conversation was reported", body: `${first(r.reporter_name || "A brother")} reported a private conversation. Open Messages to review it.`, url: "/#dm-reports", tag: `dmr-${r.id}` }) };
+}
+
 // ---------- daily digest ----------
 async function buildDigest(since: string) {
   const [{ data: msgs }, { data: teach }, { data: evNew }, { data: upcoming }] = await Promise.all([
@@ -413,6 +427,8 @@ Deno.serve(async (req) => {
       case "mention": return reply(await mention(pl.message_id));
       case "post": return reply(await postAlert(pl.message_id));
       case "reply": return reply(await replyAlert(pl.message_id));
+      case "dm": return reply(await dmAlert(pl.message_id));
+      case "dm_report": return reply(await dmReportAlert(pl.report_id));
       case "digest_tick": return reply(await digestTick(false));
       case "digest_force": return reply(await digestTick(true));
       case "member_added":
